@@ -1,0 +1,141 @@
+
+---
+#mainnn
+
+# Ruta para la red interna (172.16.3.0/30) en la tabla principal
+ip route add 172.16.3.0/30 dev enx00e04c360357 src 172.16.3.2 && echo "Ruta de red LAN (172.16.3.0/30) establecida."
+
+# RUTA POR DEFECTO DE LA TABLA MAIN (ISP2 por defecto, el 'catch-all'):**
+# Esta será manipulada por check_link.sh para el failover.
+ip route add default via 11.11.12.1 dev enx00e04c36035e metric 100 && echo "Ruta por defecto (main/ISP2) establecida."
+
+
+
+---
+
+
+
+
+ip route del default via 11.11.12.1 dev enx00e04c36035e
+--------
+#mangle del prerouting
+	#para verificar
+	sudo iptables -t mangle -L -v 
+sudo iptables -t mangle -A PREROUTING -i eno1 -j MARK --set-mark 1
+sudo iptables -t mangle -A PREROUTING -i enx00e04c36035e -j MARK --set-mark 2
+
+
+
+
+
+-----------
+
+#elimnar fwmark
+# se eliminaron al reiniciar (habian hasta las 101 xd)
+ip rule del from all fwmark 0x1 lookup ISP1_TABLES
+ip rule del from all fwmark 0x2 lookup ISP2_TABLES
+
+
+--------
+ip 
+----------
+
+
+ip rule add pref 102 table ISP2_TABLES
+otro ^^^
+
+
+
+INSTRUCCIONES - CONFIGURACIÓN BÁSICA DEL BALANCEADOR
+Fecha: 10-10-2025
+
+Resumen rápido
+- El script principal es: balancer.sh (modo básico).
+- El monitor de enlaces (failover) es: check_link.sh (se ejecuta en background con nohup o systemd).
+- Reglas específicas de balanceo se definen en: LB_rules.conf
+- bandwidth.conf existe para futuros shaping, pero en modo básico no se aplica tc.
+
+Estado actual (modo básico)
+- balancer.sh: habilita IP forwarding, limpia reglas, aplica NAT (MASQUERADE), marca tráfico según LB_rules.conf (marca 1 = ISP1, marca 2 = ISP2) y crea ip rules para tablas ISP1_TABLES / ISP2_TABLES.
+- check_link.sh: monitor de enlaces, intercambia la ruta por defecto entre ISPs cuando detecta caída/recuperación.
+
+Puntos importantes a verificar ANTES de ejecutar
+1) Interfaces: asegúrate que las variables del script `balancer.sh` coincidan con tus interfaces reales:
+	- WAN1_IF (por defecto: eno1)
+	- WAN2_IF (por defecto: enx00e04c36035e)
+	- LAN_IF  (por defecto: enx00e04c360357)
+
+2) Tablas de ruteo: el sistema debe tener entradas en /etc/iproute2/rt_tables:
+	- 101 ISP1_TABLES
+	- 102 ISP2_TABLES
+
+3) LB_rules.conf: contiene reglas específicas por IP origen/puertos/protocolo/ISP_salida. Si una regla coincide, se aplicará la marca correspondiente.
+
+Comandos recomendados (copiar/pegar)
+
+- Añadir/confirmar tablas de ruteo (si faltan):
+sudo sh -c 'grep -q "ISP1_TABLES" /etc/iproute2/rt_tables || echo "101 ISP1_TABLES" >> /etc/iproute2/rt_tables'
+sudo sh -c 'grep -q "ISP2_TABLES" /etc/iproute2/rt_tables || echo "102 ISP2_TABLES" >> /etc/iproute2/rt_tables'
+
+- Ejecutar el balanceador (como root):
+sudo ./balancer.sh
+
+- ejecutar las ./masquerades.sh
+- correr las fwmark
+	- verificar las fwmark
+		ip rule show
+
+- Iniciar el monitor de enlaces (failover) en background:
+	#sudo nohup ./check_link.sh &>/dev/null &
+sudo nohup ./check_link_No_quote.sh &>/dev/null &
+
+# sudo nohup ./check_link.sh &
+tail -f nohup.out 
+
+
+
+
+
+
+- Comprobaciones y verificación:
+ip rule show
+
+
+ # para verificar 
+ip route show table ISP1_TABLES
+ip route show table ISP2_TABLES
+
+
+ip route add 11.11.11.0/30 dev eno1 src 11.11.11.2 table ISP1_TABLES
+ip route add default via 11.11.11.1 dev eno1 table ISP1_TABLES
+ip route add 172.16.3.0/30 dev enx00e04c360357 src 172.16.3.2 table ISP1_TABLES
+
+
+ip route add 11.11.12.0/30 dev enx00e04c36035e src 11.11.12.2 table ISP2_TABLES
+ip route add default via 11.11.12.1 dev enx00e04c36035e table ISP2_TABLES
+ip route add 172.16.3.0/30 dev enx00e04c360357 src 172.16.3.2 table ISP2_TABLES
+
+
+
+sudo iptables -t mangle -L PREROUTING -n -v
+sudo iptables -t nat -L POSTROUTING -n -v
+
+
+- Ver qué tráfico marcado sale por qué interfaz (ejemplo con tcpdump):
+sudo tcpdump -i eno1 or -i enx00e04c36035e
+
+Notas y recomendaciones
+- LB_rules.conf tiene prioridad: las reglas definidas allí se aplican antes que el fallback.
+- Reglas por defecto (fallback) en balancer.sh: HTTP/HTTPS -> ISP1, resto -> ISP2. Puedes cambiar esto en el archivo si lo deseas.
+- Si tus clientes no envían tráfico por la interfaz `LAN_IF` configurada, el marcaje no se aplicará. Asegúrate de interceptar tráfico en la interfaz correcta.
+- Para limitar ancho de banda de forma real y granular, recomiendo implementar HTB con clases por marca (puedo hacerlo si lo solicitas).
+
+Posibles siguientes pasos (elige uno si quieres que lo implemente):
+1) Crear un servicio systemd para `check_link.sh` (arranque automático).
+2) Reactivar shaping con HTB usando `bandwidth.conf` y priorizar tráfico por marcas.
+3) Añadir envío periódico de métricas a Zabbix (si decides usar Zabbix más adelante).
+
+Contacto rápido
+Si quieres que implemente alguno de los siguientes pasos, dime cuál y lo hago: ajustar interfaces en `balancer.sh`, crear systemd unit, o activar HTB.
+
+
