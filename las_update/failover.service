@@ -1,0 +1,19 @@
+[Unit]
+Description=Monitoreo y Failover de Enlaces (Balanceador de Carga)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/bash /home/jonwil/Redes_21/current/check_link.sh
+Restart=always
+RestartSec=5
+User=root
+StandardOutput=append:/var/log/failover.log
+StandardError=append:/var/log/failover.log
+
+# Asegura que las variables de entorno (PATH, etc.) estén disponibles
+Environment="PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+
+[Install]
+WantedBy=multi-user.target

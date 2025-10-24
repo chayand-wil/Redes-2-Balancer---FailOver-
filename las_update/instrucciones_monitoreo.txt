@@ -1,0 +1,14 @@
+#Activar el Monitoreo
+sudo systemctl daemon-reload
+sudo systemctl enable failover.service
+sudo systemctl start failover.service
+
+#Verificar que está corriendo
+sudo systemctl status failover.service
+
+# Ver logs en tiempo real 
+sudo tail -f /var/log/failover.log
+
+
+#revisar el path
+ExecStart=/usr/bin/bash /home/jonwil/Redes_21/nuevoo/check_link.sh
